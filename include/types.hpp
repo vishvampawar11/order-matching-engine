@@ -1,12 +1,16 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 
 using Price = std::uint64_t;
 using Quantity = std::uint64_t;
 using OrderId = std::uint64_t;
 using TradeId = std::uint64_t;
 using Timestamp = std::uint64_t;
+
+using PoolIndex = std::uint32_t;
+inline constexpr PoolIndex INVALID_POOL_INDEX = std::numeric_limits<PoolIndex>::max();
 
 enum class Side : std::uint8_t
 {
