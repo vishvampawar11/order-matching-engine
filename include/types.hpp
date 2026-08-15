@@ -12,6 +12,9 @@ using Timestamp = std::uint64_t;
 using PoolIndex = std::uint32_t;
 inline constexpr PoolIndex INVALID_POOL_INDEX = std::numeric_limits<PoolIndex>::max();
 
+using LevelIndex = std::uint32_t;
+inline constexpr LevelIndex INVALID_LEVEL_INDEX = std::numeric_limits<LevelIndex>::max();
+
 enum class Side : std::uint8_t
 {
     BUY = 0,
@@ -38,7 +41,7 @@ enum class OrderStatus : std::uint8_t
     REJECTED = 4
 };
 
-// Payload is 55 bytes -> padded to 64, one cache line.
+// Payload is 60 bytes -> padded to 64, one cache line.
 struct alignas(64) Order
 {
     OrderId id = 0;
@@ -49,6 +52,11 @@ struct alignas(64) Order
     OrderType type = OrderType::LIMIT;
     OrderStatus status = OrderStatus::NEW;
     Timestamp timestamp = 0;
+
+    PoolIndex prev_index = INVALID_POOL_INDEX;
+    PoolIndex next_index = INVALID_POOL_INDEX;
+
+    LevelIndex price_level_index = INVALID_LEVEL_INDEX;
 
     constexpr Quantity remaining_quantity() const
     {

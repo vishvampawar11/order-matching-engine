@@ -1,6 +1,11 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
+#include <new>
+#include <utility>
+
+#include "./types.hpp"
 
 template <typename T, std::size_t Capacity>
 class MemoryPool
@@ -16,7 +21,7 @@ public:
         {
             free_stack_[i] = static_cast<PoolIndex>(Capacity - 1 - i);
         }
-        free_stack_count_ = Capacity;
+        free_count_ = Capacity;
     }
 
     // making the MemoryPool strictly non-copyable and non-movable
@@ -43,6 +48,11 @@ public:
         free_stack_[free_count_++] = index;
     }
 
+    T &operator[](PoolIndex index) noexcept
+    {
+        return *std::launder(reinterpret_cast<T *>(slot_address(index)));
+    }
+
     const T &operator[](PoolIndex index) const noexcept
     {
         return *std::launder(reinterpret_cast<const T *>(slot_address(index)));
@@ -58,6 +68,11 @@ private:
         std::byte bytes[sizeof(T)];
     };
 
+    void *slot_address(PoolIndex index) noexcept
+    {
+        return storage_[index].bytes;
+    }
+
     const void *slot_address(PoolIndex index) const noexcept
     {
         return storage_[index].bytes;
@@ -65,5 +80,5 @@ private:
 
     alignas(64) std::array<Slot, Capacity> storage_;
     alignas(64) std::array<PoolIndex, Capacity> free_stack_;
-    std::size_t free_stack_count_ = 0;
+    std::size_t free_count_ = 0;
 };

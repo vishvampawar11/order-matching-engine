@@ -1,8 +1,9 @@
 #pragma once
 
+#include <array>
+#include <bit>
 #include <cstdint>
 
-#include "./price_level.hpp"
 #include "./types.hpp"
 
 constexpr std::size_t next_pow2(std::size_t v)
