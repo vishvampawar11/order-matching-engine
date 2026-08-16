@@ -4,17 +4,8 @@
 #include <bit>
 #include <cstdint>
 
-#include "./types.hpp"
-
-constexpr std::size_t next_pow2(std::size_t v)
-{
-    std::size_t p = 1;
-    while (p < v)
-    {
-        p <<= 1;
-    }
-    return p;
-}
+#include "util.hpp"
+#include "types.hpp"
 
 template <std::size_t Capacity>
 class alignas(64) OrderIndexMap
