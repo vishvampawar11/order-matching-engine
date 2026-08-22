@@ -1,69 +1,217 @@
+#include <array>
+#include <atomic>
+#include <chrono>
 #include <cstdio>
+#include <cstdlib>
+#include <random>
+#include <thread>
 
+#include "util.hpp"
 #include "matching_engine.hpp"
 
-const char *event_name(OutboundEventType type)
+namespace
 {
-    switch (type)
+    constexpr std::size_t MAX_ORDERS = 8192;
+    constexpr std::size_t PRICE_LEVELS = 1024;
+    constexpr std::size_t INBOUND_CAPACITY = 4096;
+    constexpr std::size_t OUTBOUND_CAPACITY = 16384;
+
+    constexpr Price TICK_SIZE = 1;
+    constexpr Price MIN_PRICE = 9000;
+    constexpr Price MID_PRICE = MIN_PRICE + PRICE_LEVELS / 2;
+    constexpr int SPREAD = 50;
+    constexpr Quantity MAX_ORDER_QTY = 20;
+    constexpr std::size_t CANCEL_RING_SIZE = 64;
+    constexpr std::size_t DEFAULT_NUM_ORDERS = 500'000;
+    constexpr std::size_t VERBOSE_EVENT_LIMIT = 20;
+
+    using Inbound = SPSCQueue<InboundMessage, INBOUND_CAPACITY>;
+    using Outbound = SPSCQueue<OutboundEvent, OUTBOUND_CAPACITY>;
+    using Engine = MatchingEngine<MAX_ORDERS, PRICE_LEVELS, INBOUND_CAPACITY, OUTBOUND_CAPACITY>;
+
+    struct Stats
     {
-    case OutboundEventType::TRADE_EXECUTED:
-        return "TRADE";
-    case OutboundEventType::ORDER_ACKED:
-        return "ACK";
-    case OutboundEventType::ORDER_CANCELLED:
-        return "CANCEL";
-    case OutboundEventType::ORDER_REJECTED:
-        return "REJECT";
+        std::uint64_t acked = 0;
+        std::uint64_t trades = 0;
+        std::uint64_t traded_quantity = 0;
+        std::uint64_t cancelled = 0;
+        std::uint64_t rejected = 0;
+
+        void record(const OutboundEvent &ev)
+        {
+            switch (ev.type)
+            {
+            case OutboundEventType::ORDER_ACKED:
+                ++acked;
+                break;
+            case OutboundEventType::TRADE_EXECUTED:
+                ++trades;
+                traded_quantity += ev.quantity;
+                break;
+            case OutboundEventType::ORDER_CANCELLED:
+                ++cancelled;
+                break;
+            case OutboundEventType::ORDER_REJECTED:
+                ++rejected;
+                break;
+            }
+        }
+    };
+
+    // Runs on its own thread and feeds `inbound` concurrently with the
+    // matching loop in main() -- this is what actually exercises the SPSC
+    // queue's cross-core path instead of just calling it from one thread.
+    void run_producer(Inbound &inbound, std::atomic<bool> &done, std::size_t num_orders)
+    {
+        constexpr int seed = 42; // the answer to the ultimate question of life, the universe, and everything.
+        std::mt19937 rng(seed);
+        std::uniform_int_distribution<int> side_dist(0, 1);
+        std::uniform_int_distribution<int> type_dist(0, 9);
+        std::uniform_int_distribution<int> offset_dist(-SPREAD, SPREAD);
+        std::uniform_int_distribution<Quantity> qty_dist(1, MAX_ORDER_QTY);
+        std::uniform_int_distribution<int> cancel_dist(0, 9);
+
+        std::array<OrderId, CANCEL_RING_SIZE> recent_ids{};
+        std::size_t recent_count = 0;
+        std::size_t recent_cursor = 0;
+
+        auto push = [&](const InboundMessage &msg)
+        {
+            while (!inbound.try_push(msg))
+            {
+                std::this_thread::yield();
+            }
+        };
+
+        OrderId next_id = 1;
+        for (std::size_t i = 0; i < num_orders; ++i)
+        {
+            const Timestamp ts = static_cast<Timestamp>(i);
+
+            if (recent_count > 0 && cancel_dist(rng) == 0)
+            {
+                std::uniform_int_distribution<std::size_t> pick(0, recent_count - 1);
+                InboundMessage cancel{};
+                cancel.type = MessageType::CANCEL_ORDER;
+                cancel.order_id = recent_ids[pick(rng)];
+                cancel.timestamp = ts;
+                push(cancel);
+                continue;
+            }
+
+            // Price drawn symmetrically around the mid so buys and sells
+            // overlap and actually cross each other, instead of every
+            // order resting and growing the book without bound.
+            InboundMessage order{};
+            order.type = MessageType::NEW_ORDER;
+            order.order_id = next_id++;
+            order.side = (side_dist(rng) == 0) ? Side::BUY : Side::SELL;
+            order.order_type = (type_dist(rng) == 0) ? OrderType::MARKET : OrderType::LIMIT;
+            order.price = static_cast<Price>(static_cast<long long>(MID_PRICE) + offset_dist(rng));
+            order.quantity = qty_dist(rng);
+            order.timestamp = ts;
+            push(order);
+
+            recent_ids[recent_cursor] = order.order_id;
+            recent_cursor = (recent_cursor + 1) & (CANCEL_RING_SIZE - 1);
+            recent_count = std::min(recent_count + 1, CANCEL_RING_SIZE);
+        }
+
+        done.store(true, std::memory_order_release);
     }
-    return "UNKNOWN";
-}
+} // namespace
 
-void print_event(const OutboundEvent &ev)
+int main(int argc, char **argv)
 {
-    std::printf("[%s] taker=%llu maker=%llu price=%llu qty=%llu ts=%llu\n",
-                event_name(ev.type),
-                static_cast<unsigned long long>(ev.taker_order_id),
-                static_cast<unsigned long long>(ev.maker_order_id),
-                static_cast<unsigned long long>(ev.price),
-                static_cast<unsigned long long>(ev.quantity),
-                static_cast<unsigned long long>(ev.timestamp));
-}
-
-int main()
-{
-    SPSCQueue<InboundMessage, 1024> inbound;
-    SPSCQueue<OutboundEvent, 1024> outbound;
-    MatchingEngine<1024, 65536, 1024, 1024> engine(100, 1, inbound, outbound);
-
-    InboundMessage new_order{};
-    new_order.type = MessageType::NEW_ORDER;
-    new_order.order_id = 1;
-    new_order.side = Side::BUY;
-    new_order.order_type = OrderType::LIMIT;
-    new_order.price = 105;
-    new_order.quantity = 10;
-    new_order.timestamp = 1000;
-    inbound.try_push(new_order);
-
-    new_order.order_id = 2;
-    new_order.side = Side::SELL;
-    new_order.price = 105;
-    new_order.quantity = 4;
-    new_order.timestamp = 1001;
-    inbound.try_push(new_order);
-
-    InboundMessage cancel{};
-    cancel.type = MessageType::CANCEL_ORDER;
-    cancel.order_id = 1;
-    cancel.timestamp = 1002;
-    inbound.try_push(cancel);
-
-    engine.poll();
-
-    OutboundEvent ev;
-    while (outbound.try_pop(ev))
+    std::size_t num_orders = DEFAULT_NUM_ORDERS;
+    if (argc > 1)
     {
-        print_event(ev);
+        char *end = nullptr;
+        const unsigned long long parsed = std::strtoull(argv[1], &end, 10);
+        if (end != argv[1] && parsed > 0)
+        {
+            num_orders = static_cast<std::size_t>(parsed);
+        }
+    }
+
+    // Static storage, not stack: the queues and order pool are large
+    // fixed-capacity buffers (the outbound queue alone is 1MB) and would
+    // blow a thread's default stack if declared as locals.
+    static Inbound inbound;
+    static Outbound outbound;
+    static Engine engine(MIN_PRICE, TICK_SIZE, inbound, outbound);
+
+    std::printf("replaying %llu synthetic orders through the matching engine...\n\n",
+                static_cast<unsigned long long>(num_orders));
+
+    std::atomic<bool> producer_done{false};
+    const auto start = std::chrono::steady_clock::now();
+    std::thread producer(run_producer, std::ref(inbound), std::ref(producer_done), num_orders);
+
+    Stats stats;
+    std::uint64_t total_processed = 0;
+    std::uint64_t printed = 0;
+    bool done = false;
+    while (!done)
+    {
+        const std::size_t processed = engine.poll();
+        total_processed += processed;
+
+        OutboundEvent ev;
+        while (outbound.try_pop(ev))
+        {
+            stats.record(ev);
+            if (printed < VERBOSE_EVENT_LIMIT)
+            {
+                print_event(ev);
+                ++printed;
+            }
+        }
+
+        if (processed == 0)
+        {
+            if (producer_done.load(std::memory_order_acquire))
+            {
+                done = true;
+            }
+            else
+            {
+                std::this_thread::yield();
+            }
+        }
+    }
+    producer.join();
+
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    const double seconds = std::chrono::duration<double>(elapsed).count();
+
+    std::printf("\n%llu more events not shown\n\n", printed < stats.acked + stats.trades + stats.cancelled + stats.rejected
+                                                        ? static_cast<unsigned long long>(stats.acked + stats.trades + stats.cancelled + stats.rejected - printed)
+                                                        : 0ULL);
+    std::printf("processed %llu messages in %.3f ms (%.0f msgs/sec)\n",
+                static_cast<unsigned long long>(total_processed), seconds * 1000.0,
+                seconds > 0 ? static_cast<double>(total_processed) / seconds : 0.0);
+    std::printf("acks=%llu trades=%llu traded_qty=%llu cancels=%llu rejects=%llu\n",
+                static_cast<unsigned long long>(stats.acked),
+                static_cast<unsigned long long>(stats.trades),
+                static_cast<unsigned long long>(stats.traded_quantity),
+                static_cast<unsigned long long>(stats.cancelled),
+                static_cast<unsigned long long>(stats.rejected));
+
+    auto &book = engine.book();
+    if (book.has_bid() && book.has_ask())
+    {
+        std::printf("final book: bid %llu@%llu | ask %llu@%llu | open_orders=%llu\n",
+                    static_cast<unsigned long long>(book.best_bid_quantity()),
+                    static_cast<unsigned long long>(book.best_bid_price()),
+                    static_cast<unsigned long long>(book.best_ask_quantity()),
+                    static_cast<unsigned long long>(book.best_ask_price()),
+                    static_cast<unsigned long long>(book.open_order_count()));
+    }
+    else
+    {
+        std::printf("final book: one-sided or empty | open_orders=%llu\n",
+                    static_cast<unsigned long long>(book.open_order_count()));
     }
 
     return 0;
