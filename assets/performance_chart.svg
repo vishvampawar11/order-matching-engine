@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 460" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <rect x="0" y="0" width="720" height="460" fill="#ffffff"/>
+
+  <text x="360" y="24" text-anchor="middle" font-size="16" font-weight="600" fill="#1a1a1a">
+    Throughput &amp; p99 latency vs. order count
+  </text>
+  <text x="360" y="42" text-anchor="middle" font-size="11" fill="#666666">
+    single-threaded --bench, Intel Core i5-1035G1 @ 1.00GHz
+  </text>
+
+  <!-- plot area: x in [70,650], y in [60,370] -->
+  <line x1="70" y1="370" x2="650" y2="370" stroke="#333333" stroke-width="1.5"/>
+  <line x1="70" y1="60" x2="70" y2="370" stroke="#2b6cb0" stroke-width="1.5"/>
+  <line x1="650" y1="60" x2="650" y2="370" stroke="#c05621" stroke-width="1.5"/>
+
+  <!-- left y gridlines/labels: throughput 0..12M -->
+  <g font-size="10" fill="#2b6cb0">
+    <line x1="65" y1="370" x2="650" y2="370" stroke="#eeeeee"/>
+    <text x="60" y="373" text-anchor="end">0</text>
+    <line x1="65" y1="285" x2="650" y2="285" stroke="#eeeeee"/>
+    <text x="60" y="288" text-anchor="end">3M</text>
+    <line x1="65" y1="200" x2="650" y2="200" stroke="#eeeeee"/>
+    <text x="60" y="203" text-anchor="end">6M</text>
+    <line x1="65" y1="115" x2="650" y2="115" stroke="#eeeeee"/>
+    <text x="60" y="118" text-anchor="end">9M</text>
+    <line x1="65" y1="60" x2="650" y2="60" stroke="#eeeeee"/>
+    <text x="60" y="63" text-anchor="end">12M</text>
+    <text x="20" y="215" transform="rotate(-90 20 215)" text-anchor="middle" font-size="11">throughput (msgs/sec)</text>
+  </g>
+
+  <!-- right y labels: p99 latency 0..2.5us -->
+  <g font-size="10" fill="#c05621">
+    <text x="656" y="373">0</text>
+    <text x="656" y="305">0.5</text>
+    <text x="656" y="237">1.0</text>
+    <text x="656" y="169">1.5</text>
+    <text x="656" y="101">2.0</text>
+    <text x="656" y="63">2.5 us</text>
+    <text x="700" y="215" transform="rotate(-90 700 215)" text-anchor="middle" font-size="11">p99 latency (us)</text>
+  </g>
+
+  <!-- x axis labels (log-spaced order counts) -->
+  <g font-size="10" fill="#333333" text-anchor="middle">
+    <text x="70" y="388">10K</text>
+    <text x="263" y="388">100K</text>
+    <text x="457" y="388">1M</text>
+    <text x="591" y="388">5M</text>
+    <text x="650" y="388">10M</text>
+  </g>
+  <text x="360" y="410" text-anchor="middle" font-size="11" fill="#333333">order count (log scale)</text>
+
+  <!-- throughput line (blue) -->
+  <polyline fill="none" stroke="#2b6cb0" stroke-width="2.5"
+    points="70,204.9 263,135.7 457,91.9 591,94.1 650,98.5"/>
+  <circle cx="70" cy="204.9" r="4" fill="#2b6cb0"/>
+  <circle cx="263" cy="135.7" r="4" fill="#2b6cb0"/>
+  <circle cx="457" cy="91.9" r="4" fill="#2b6cb0"/>
+  <circle cx="591" cy="94.1" r="4" fill="#2b6cb0"/>
+  <circle cx="650" cy="98.5" r="4" fill="#2b6cb0"/>
+
+  <!-- p99 latency line (orange) -->
+  <polyline fill="none" stroke="#c05621" stroke-width="2.5"
+    points="70,57.2 263,315.6 457,329.2 591,329.2 650,329.2"/>
+  <circle cx="70" cy="57.2" r="4" fill="#c05621"/>
+  <circle cx="263" cy="315.6" r="4" fill="#c05621"/>
+  <circle cx="457" cy="329.2" r="4" fill="#c05621"/>
+  <circle cx="591" cy="329.2" r="4" fill="#c05621"/>
+  <circle cx="650" cy="329.2" r="4" fill="#c05621"/>
+
+  <!-- legend -->
+  <g font-size="11" fill="#333333">
+    <line x1="440" y1="430" x2="465" y2="430" stroke="#2b6cb0" stroke-width="2.5"/>
+    <text x="470" y="434">throughput</text>
+    <line x1="560" y1="430" x2="585" y2="430" stroke="#c05621" stroke-width="2.5"/>
+    <text x="590" y="434">p99 latency</text>
+  </g>
+</svg>
