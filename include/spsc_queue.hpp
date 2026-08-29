@@ -19,15 +19,15 @@ public:
     SPSCQueue(SPSCQueue &&) = delete;
     SPSCQueue &operator=(SPSCQueue &&) = delete;
 
-    bool try_push(const T &item)
+    [[nodiscard]] bool try_push(const T &item)
     {
         const std::size_t current_tail = tail_.load(std::memory_order_relaxed);
         const std::size_t next_tail = advance(current_tail);
 
-        if (next_tail == head_cache_)
+        if (next_tail == head_cache_) [[unlikely]]
         {
             head_cache_ = head_.load(std::memory_order_acquire);
-            if (next_tail == head_cache_)
+            if (next_tail == head_cache_) [[unlikely]]
             {
                 return false;
             }
@@ -38,7 +38,7 @@ public:
         return true;
     }
 
-    bool try_pop(T &out)
+    [[nodiscard]] bool try_pop(T &out)
     {
         const std::size_t current_head = head_.load(std::memory_order_relaxed);
 
@@ -56,7 +56,7 @@ public:
         return true;
     }
 
-    static constexpr std::size_t usable_capacity() { return Capacity - 1; }
+    [[nodiscard]] static constexpr std::size_t usable_capacity() { return Capacity - 1; }
 
 private:
     static constexpr std::size_t INDEX_MASK = Capacity - 1;

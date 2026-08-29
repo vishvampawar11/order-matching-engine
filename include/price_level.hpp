@@ -9,5 +9,5 @@ struct PriceLevel
     Quantity total_quantity = 0;
     std::uint32_t order_count = 0;
 
-    constexpr bool empty() const { return head == INVALID_POOL_INDEX; }
+    [[nodiscard]] constexpr bool empty() const { return head == INVALID_POOL_INDEX; }
 };

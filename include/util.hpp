@@ -5,7 +5,7 @@
 
 #include "messages.hpp"
 
-constexpr std::size_t next_pow2(std::size_t v)
+[[nodiscard]] constexpr std::size_t next_pow2(std::size_t v)
 {
     std::size_t p = 1;
     while (p < v)
@@ -15,7 +15,7 @@ constexpr std::size_t next_pow2(std::size_t v)
     return p;
 }
 
-inline const char *event_name(OutboundEventType type)
+[[nodiscard]] inline const char *event_name(OutboundEventType type)
 {
     switch (type)
     {

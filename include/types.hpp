@@ -21,7 +21,7 @@ enum class Side : std::uint8_t
     SELL = 1
 };
 
-constexpr Side opposite_side(Side side)
+[[nodiscard]] constexpr Side opposite_side(Side side)
 {
     return (side == Side::BUY) ? Side::SELL : Side::BUY;
 }
@@ -58,12 +58,12 @@ struct alignas(64) Order
 
     LevelIndex price_level_index = INVALID_LEVEL_INDEX;
 
-    constexpr Quantity remaining_quantity() const
+    [[nodiscard]] constexpr Quantity remaining_quantity() const
     {
         return quantity - filled_quantity;
     }
 
-    constexpr bool is_filled() const
+    [[nodiscard]] constexpr bool is_filled() const
     {
         return filled_quantity >= quantity;
     }

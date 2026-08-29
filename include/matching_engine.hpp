@@ -19,7 +19,7 @@ public:
     MatchingEngine(const MatchingEngine &) = delete;
     MatchingEngine &operator=(const MatchingEngine &) = delete;
 
-    std::size_t poll() noexcept
+    [[nodiscard]] std::size_t poll() noexcept
     {
         std::size_t processed = 0;
         InboundMessage msg;
@@ -48,7 +48,7 @@ private:
             book_.submit_order(msg.order_id, msg.side, msg.order_type, msg.price, msg.quantity, msg.timestamp, sink);
             break;
         case MessageType::CANCEL_ORDER:
-            book_.cancel_order(msg.order_id, msg.timestamp, sink);
+            (void)book_.cancel_order(msg.order_id, msg.timestamp, sink);
             break;
         }
     }

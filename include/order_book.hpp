@@ -40,7 +40,7 @@ public:
     }
 
     template <typename EventSink>
-    bool cancel_order(OrderId id, Timestamp timestamp, EventSink &sink)
+    [[nodiscard]] bool cancel_order(OrderId id, Timestamp timestamp, EventSink &sink)
     {
         const PoolIndex pool_index = index_map_.find(id);
         if (pool_index == INVALID_POOL_INDEX) [[unlikely]]
@@ -74,7 +74,7 @@ public:
         event.taker_side = order.side;
         sink(event);
 
-        index_map_.erase(id);
+        (void)index_map_.erase(id);
         pool_.release(pool_index);
         return true;
     }
@@ -168,7 +168,7 @@ private:
             {
                 unlink(level, maker_pool_index);
                 --level.order_count;
-                index_map_.erase(maker.id);
+                (void)index_map_.erase(maker.id);
                 pool_.release(maker_pool_index);
             }
             else
@@ -187,14 +187,14 @@ private:
     void rest_order(OrderId id, Side side, Price price,
                     Quantity remaining, Timestamp timestamp, EventSink &sink) noexcept
     {
-        if (!price_in_range(price))
+        if (!price_in_range(price)) [[unlikely]]
         {
             reject(id, side, remaining, timestamp, sink);
             return;
         }
 
         const PoolIndex pool_index = pool_.acquire();
-        if (pool_index == INVALID_POOL_INDEX)
+        if (pool_index == INVALID_POOL_INDEX) [[unlikely]]
         {
             reject(id, side, remaining, timestamp, sink);
             return;
@@ -238,7 +238,7 @@ private:
             }
         }
 
-        if (!index_map_.insert(id, pool_index))
+        if (!index_map_.insert(id, pool_index)) [[unlikely]]
         {
             unlink(level, pool_index);
             --level.order_count;
@@ -341,7 +341,7 @@ private:
         bitmap_[idx / 64] &= ~(std::uint64_t{1} << (idx % 64));
     }
 
-    LevelIndex find_prev_set(LevelIndex start) const
+    [[nodiscard]] LevelIndex find_prev_set(LevelIndex start) const
     {
         std::size_t word = start / 64;
         const unsigned bit = start % 64;
@@ -363,7 +363,7 @@ private:
         }
     }
 
-    LevelIndex find_next_set(LevelIndex start) const
+    [[nodiscard]] LevelIndex find_next_set(LevelIndex start) const
     {
         std::size_t word = start / 64;
         const unsigned bit = start % 64;
@@ -384,26 +384,26 @@ private:
         }
     }
 
-    bool price_in_range(Price price) const noexcept
+    [[nodiscard]] bool price_in_range(Price price) const noexcept
     {
-        if (price < min_price_)
+        if (price < min_price_) [[unlikely]]
         {
             return false;
         }
         const Price offset = price - min_price_;
-        if (offset % tick_size_ != 0)
+        if (offset % tick_size_ != 0) [[unlikely]]
         {
             return false; // Not aligned to the instrument's tick size.
         }
         return (offset / tick_size_) < PriceLevels;
     }
 
-    LevelIndex price_to_level(Price price) const
+    [[nodiscard]] LevelIndex price_to_level(Price price) const
     {
         return static_cast<LevelIndex>((price - min_price_) / tick_size_);
     }
 
-    Price level_to_price(LevelIndex index) const
+    [[nodiscard]] Price level_to_price(LevelIndex index) const
     {
         return min_price_ + static_cast<Price>(index) * tick_size_;
     }

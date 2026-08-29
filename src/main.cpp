@@ -178,7 +178,7 @@ namespace
             {
                 std::this_thread::yield();
             }
-            engine.poll();
+            (void)engine.poll();
             while (outbound.try_pop(ev))
             {
                 // drain so the next iteration starts from an empty queue

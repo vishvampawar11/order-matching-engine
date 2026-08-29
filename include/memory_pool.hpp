@@ -31,9 +31,9 @@ public:
     MemoryPool &operator=(MemoryPool &&) = delete;
 
     template <typename... Args>
-    PoolIndex acquire(Args &&...args) noexcept
+    [[nodiscard]] PoolIndex acquire(Args &&...args) noexcept
     {
-        if (free_count_ == 0)
+        if (free_count_ == 0) [[unlikely]]
         {
             return INVALID_POOL_INDEX;
         }
@@ -48,19 +48,19 @@ public:
         free_stack_[free_count_++] = index;
     }
 
-    T &operator[](PoolIndex index) noexcept
+    [[nodiscard]] T &operator[](PoolIndex index) noexcept
     {
         return *std::launder(reinterpret_cast<T *>(slot_address(index)));
     }
 
-    const T &operator[](PoolIndex index) const noexcept
+    [[nodiscard]] const T &operator[](PoolIndex index) const noexcept
     {
         return *std::launder(reinterpret_cast<const T *>(slot_address(index)));
     }
 
-    constexpr std::size_t capacity() const noexcept { return Capacity; }
-    std::size_t free_count() const noexcept { return free_count_; }
-    std::size_t in_use_count() const noexcept { return Capacity - free_count_; }
+    [[nodiscard]] constexpr std::size_t capacity() const noexcept { return Capacity; }
+    [[nodiscard]] std::size_t free_count() const noexcept { return free_count_; }
+    [[nodiscard]] std::size_t in_use_count() const noexcept { return Capacity - free_count_; }
 
 private:
     struct alignas(alignof(T)) Slot

@@ -167,7 +167,7 @@ namespace
         book.submit_order(2, Side::BUY, OrderType::LIMIT, 105, 4, 1001, recorder);
         recorder.events.clear();
 
-        book.cancel_order(1, 2000, recorder);
+        (void)book.cancel_order(1, 2000, recorder);
 
         ASSERT_EQ(recorder.events.size(), 1u);
         EXPECT_EQ(recorder.events[0].type, OutboundEventType::ORDER_CANCELLED);

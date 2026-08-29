@@ -19,7 +19,7 @@ public:
     OrderIndexMap(const OrderIndexMap &) = delete;
     OrderIndexMap &operator=(const OrderIndexMap &) = delete;
 
-    bool insert(OrderId order_id, PoolIndex pool_index)
+    [[nodiscard]] bool insert(OrderId order_id, PoolIndex pool_index)
     {
         std::size_t slot = home_slot(order_id);
         for (std::size_t probes = 0; probes < Capacity; ++probes)
@@ -35,7 +35,7 @@ public:
         return false;
     }
 
-    PoolIndex find(OrderId order_id) const noexcept
+    [[nodiscard]] PoolIndex find(OrderId order_id) const noexcept
     {
         std::size_t slot = home_slot(order_id);
         for (std::size_t probes = 0; probes < Capacity; ++probes)
@@ -54,7 +54,7 @@ public:
         return INVALID_POOL_INDEX;
     }
 
-    bool erase(OrderId order_id) noexcept
+    [[nodiscard]] bool erase(OrderId order_id) noexcept
     {
         std::size_t hole = home_slot(order_id);
         std::size_t probes = 0;
@@ -94,8 +94,8 @@ public:
         return true;
     }
 
-    std::size_t size() const { return size_; }
-    static constexpr std::size_t capacity() { return Capacity; }
+    [[nodiscard]] std::size_t size() const { return size_; }
+    [[nodiscard]] static constexpr std::size_t capacity() { return Capacity; }
 
 private:
     // Fibonacci hashing: multiply by an odd constant close to
