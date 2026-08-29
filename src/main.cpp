@@ -1,10 +1,13 @@
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <random>
+#include <string_view>
 #include <thread>
+#include <vector>
 
 #include "util.hpp"
 #include "matching_engine.hpp"
@@ -58,9 +61,6 @@ namespace
         }
     };
 
-    // Runs on its own thread and feeds `inbound` concurrently with the
-    // matching loop in main() -- this is what actually exercises the SPSC
-    // queue's cross-core path instead of just calling it from one thread.
     void run_producer(Inbound &inbound, std::atomic<bool> &done, std::size_t num_orders)
     {
         constexpr int seed = 42; // the answer to the ultimate question of life, the universe, and everything.
@@ -99,9 +99,6 @@ namespace
                 continue;
             }
 
-            // Price drawn symmetrically around the mid so buys and sells
-            // overlap and actually cross each other, instead of every
-            // order resting and growing the book without bound.
             InboundMessage order{};
             order.type = MessageType::NEW_ORDER;
             order.order_id = next_id++;
@@ -119,24 +116,142 @@ namespace
 
         done.store(true, std::memory_order_release);
     }
+
+    void run_benchmark(std::size_t num_orders)
+    {
+        static Inbound inbound;
+        static Outbound outbound;
+        static Engine engine(MIN_PRICE, TICK_SIZE, inbound, outbound);
+
+        constexpr int seed = 42;
+        std::mt19937 rng(seed);
+        std::uniform_int_distribution<int> side_dist(0, 1);
+        std::uniform_int_distribution<int> type_dist(0, 9);
+        std::uniform_int_distribution<int> offset_dist(-SPREAD, SPREAD);
+        std::uniform_int_distribution<Quantity> qty_dist(1, MAX_ORDER_QTY);
+        std::uniform_int_distribution<int> cancel_dist(0, 9);
+
+        std::array<OrderId, CANCEL_RING_SIZE> recent_ids{};
+        std::size_t recent_count = 0;
+        std::size_t recent_cursor = 0;
+
+        // Discard the first slice from the stats so cache warm-up and
+        // branch prediction settle before anything is recorded.
+        const std::size_t warmup = std::min<std::size_t>(num_orders / 10, 50'000);
+        std::vector<double> latencies_us;
+        latencies_us.reserve(num_orders > warmup ? num_orders - warmup : 0);
+
+        OrderId next_id = 1;
+        OutboundEvent ev;
+
+        for (std::size_t i = 0; i < num_orders; ++i)
+        {
+            const Timestamp ts = static_cast<Timestamp>(i);
+            InboundMessage msg{};
+
+            if (recent_count > 0 && cancel_dist(rng) == 0)
+            {
+                std::uniform_int_distribution<std::size_t> pick(0, recent_count - 1);
+                msg.type = MessageType::CANCEL_ORDER;
+                msg.order_id = recent_ids[pick(rng)];
+                msg.timestamp = ts;
+            }
+            else
+            {
+                msg.type = MessageType::NEW_ORDER;
+                msg.order_id = next_id++;
+                msg.side = (side_dist(rng) == 0) ? Side::BUY : Side::SELL;
+                msg.order_type = (type_dist(rng) == 0) ? OrderType::MARKET : OrderType::LIMIT;
+                msg.price = static_cast<Price>(static_cast<long long>(MID_PRICE) + offset_dist(rng));
+                msg.quantity = qty_dist(rng);
+                msg.timestamp = ts;
+
+                recent_ids[recent_cursor] = msg.order_id;
+                recent_cursor = (recent_cursor + 1) & (CANCEL_RING_SIZE - 1);
+                recent_count = std::min(recent_count + 1, CANCEL_RING_SIZE);
+            }
+
+            const bool timed = i >= warmup;
+            const auto t0 = timed ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+
+            while (!inbound.try_push(msg))
+            {
+                std::this_thread::yield();
+            }
+            engine.poll();
+            while (outbound.try_pop(ev))
+            {
+                // drain so the next iteration starts from an empty queue
+            }
+
+            if (timed)
+            {
+                const auto t1 = std::chrono::steady_clock::now();
+                latencies_us.push_back(std::chrono::duration<double, std::micro>(t1 - t0).count());
+            }
+        }
+
+        std::sort(latencies_us.begin(), latencies_us.end());
+        const std::size_t n = latencies_us.size();
+
+        auto percentile = [&](double p)
+        {
+            if (n == 0)
+            {
+                return 0.0;
+            }
+            const std::size_t idx = static_cast<std::size_t>(p * static_cast<double>(n - 1));
+            return latencies_us[idx];
+        };
+
+        double sum = 0.0;
+        for (double v : latencies_us)
+        {
+            sum += v;
+        }
+        const double mean = n > 0 ? sum / static_cast<double>(n) : 0.0;
+
+        std::printf("\n--- latency benchmark (single-threaded, %llu warmup + %llu measured messages) ---\n",
+                    static_cast<unsigned long long>(warmup), static_cast<unsigned long long>(n));
+        std::printf("min    = %.3f us\n", n > 0 ? latencies_us.front() : 0.0);
+        std::printf("mean   = %.3f us\n", mean);
+        std::printf("p50    = %.3f us\n", percentile(0.50));
+        std::printf("p90    = %.3f us\n", percentile(0.90));
+        std::printf("p99    = %.3f us\n", percentile(0.99));
+        std::printf("p99.9  = %.3f us\n", percentile(0.999));
+        std::printf("max    = %.3f us\n", n > 0 ? latencies_us.back() : 0.0);
+        std::printf("throughput = %.0f msgs/sec (measured region, single-threaded)\n",
+                     mean > 0 ? 1'000'000.0 / mean : 0.0);
+    }
 } // namespace
 
 int main(int argc, char **argv)
 {
     std::size_t num_orders = DEFAULT_NUM_ORDERS;
-    if (argc > 1)
+    bool bench_mode = false;
+    for (int i = 1; i < argc; ++i)
     {
+        if (std::string_view(argv[i]) == "--bench")
+        {
+            bench_mode = true;
+            continue;
+        }
         char *end = nullptr;
-        const unsigned long long parsed = std::strtoull(argv[1], &end, 10);
-        if (end != argv[1] && parsed > 0)
+        const unsigned long long parsed = std::strtoull(argv[i], &end, 10);
+        if (end != argv[i] && parsed > 0)
         {
             num_orders = static_cast<std::size_t>(parsed);
         }
     }
 
-    // Static storage, not stack: the queues and order pool are large
-    // fixed-capacity buffers (the outbound queue alone is 1MB) and would
-    // blow a thread's default stack if declared as locals.
+    if (bench_mode)
+    {
+        std::printf("running single-threaded latency benchmark with %llu synthetic orders...\n",
+                    static_cast<unsigned long long>(num_orders));
+        run_benchmark(num_orders);
+        return 0;
+    }
+
     static Inbound inbound;
     static Outbound outbound;
     static Engine engine(MIN_PRICE, TICK_SIZE, inbound, outbound);
